@@ -23,16 +23,16 @@ int main() {
 
     // Count the number of characters in the input string
     int numCharacters = input.size();
-    remainingNumCharacters = (totalNumCharacters - numCharacters - 4)/2;
+    remainingNumCharacters = (totalNumCharacters - numCharacters - 4);
     std::cout << "Remaining number of characters: " << remainingNumCharacters << std::endl;
 
     // Create the output string
     outputTxt = "% ";
     if (remainingNumCharacters%2 == 0) {
-        outputTxt += std::string(remainingNumCharacters, '=') + " " + input + " " + std::string(remainingNumCharacters, '=');
+        outputTxt += std::string(remainingNumCharacters/2, '=') + " " + input + " " + std::string(remainingNumCharacters/2, '=');
     } else
     {
-        outputTxt += std::string(remainingNumCharacters, '=') + " " + input + " " + std::string(remainingNumCharacters + 1, '=');
+        outputTxt += std::string(remainingNumCharacters/2, '=') + " " + input + " " + std::string(remainingNumCharacters/2 + 1, '=');
     }
 
     // Print the number of characters
