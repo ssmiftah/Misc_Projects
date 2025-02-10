@@ -183,25 +183,15 @@ void remove_comments(std::string fileName, std::string outFileName){
 }
 
 int main(int argc, char** argv) {
-
-    // std::stringstream buffer;                                            // Create a stringstream object to hold the file content
-    // buffer << infile.rdbuf();                                            // Read the entire file content into the stringstream buffer
-    // std::string file_Text = buffer.str();                                // Convert the stringstream buffer to a string
-
+    
     module_info get_io;
+    std::stringstream fileTxt = get_io.remove_comments(argv[1]);
 
     std::string line;
-    // std::cout << buffer.str() << std::endl;
-    // std::cout << line << std::endl;
-
-    std::stringstream noCommentFile = get_io.remove_comments(argv[1]);
-
-    // std::cout << noCommentFile.str() << std::endl;
-
-    while (std::getline(noCommentFile, line)){
+    while (std::getline(fileTxt, line)){
         get_io.get_inouts(line);
     }
-
+    
     get_io.show_inouts();
 
     return 0;
