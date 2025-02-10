@@ -1,297 +1,208 @@
 #include <iostream>
 #include <fstream>
-#include <string>
 #include <vector>
 #include <regex>
-#include <algorithm>
 
 
-
-class port_dets {
-public:
-    std::string port_name;
-    std::string port_type;
-    size_t port_size;
-    bool port_empty = true;
-
-    void print() {
-        std::cout << "Port name: " << port_name << std::endl;
-        std::cout << "Port type: " << port_type << std::endl;
-        std::cout << "Port size: " << port_size << std::endl;
-    }
-
-
-    port_dets& operator=(const port_dets& other) {                                      // copy assignment
-        if (this != &other) {
-            port_name = other.port_name;
-            port_type = other.port_type;
-            port_size = other.port_size;
-            port_empty = other.port_empty;
-        }
-        return *this;
-    }
-
-    port_dets() : port_name(""), port_type(""), port_size(0), port_empty(true) {}       // default constructor
+// This struct contains relevant information regarding a register. (i.e., name, bitwidth etc.)
+struct reg_det{
+    std::string name;
+    std::string arr_value;
+    int bitwidth;
 };
 
-std::string stripCommentsAndSpaces(const std::string& line) {
-    std::string strippedLine = line;
-    // Remove comments
-    size_t commentPos = strippedLine.find("//");
-    if (commentPos != std::string::npos) {
-        strippedLine = strippedLine.substr(0, commentPos);                              // Remove everything after the comment
-    }
-    // Remove trailing spaces
-    strippedLine.erase(std::find_if(strippedLine.rbegin(), strippedLine.rend(), [](unsigned char ch) {  // Remove trailing spaces
-        return !std::isspace(ch);
-    }).base(), strippedLine.end());
-    return strippedLine;
-}
+// A class containing all the module information. This class will be used to mutate the seeds.
+class module_info{
+private:
+    //  Rrgister detail containers
+    std::vector<reg_det> module_input, module_output;
 
-std::string removeLineBreaks(const std::string& inputText) {
 
-    std::string line;
-    std::string content;
-    bool firstLine = true;
+    std::vector <reg_det> reg_name_separation(std::string line, std::string delimiter, std::regex pattern){
+        std::vector<reg_det> out_list;
+        size_t pos = 0;
+        reg_det token;
+        std::string reg_names, arr_size;
 
-    std::istringstream inputTextStream(inputText);
+        // Array pattern to calculate the size of a register in a design;
+        std::regex arr_pattern{"\\[\\s*([\\w\\d]+)\\s*:\\s*([\\w\\d]+)\\s*\\]"};
+        std::smatch match, len_match;
 
-    while (std::getline(inputTextStream, line)) {
-        std::string strippedLine = stripCommentsAndSpaces(line);
-        if (!firstLine) {
-            if (content.back() != ';') {
-                content += " ";  // Add a space if the previous line did not end with a semicolon
+        if(std::regex_search(line, match, pattern)){            // If the pattern is found in the line this block is executed
+            arr_size = match[2];
+            token.arr_value = arr_size;
+            if (arr_size.length() == 0) token.bitwidth = 1;
+            else {
+                std::regex_search(arr_size, len_match, arr_pattern);
+                token.bitwidth = std::abs(std::stoi(len_match[2]) - std::stoi(len_match[1])) + 1;
+            }
+            reg_names = std::regex_replace(match[3].str(), std::regex("^\\s+|\\s+$"), "");
+            if(reg_names.find(delimiter) == std::string::npos){
+                token.name = reg_names;
+                out_list.push_back(token);
             } else {
-                content += "\n";  // Add a newline if the previous line ended with a semicolon
+                while((pos = reg_names.find(delimiter)) != std::string::npos){
+                    token.name = reg_names.substr(0, pos);
+                    token.name = token.name;
+                    reg_names.erase(0, pos+delimiter.length());
+                    out_list.push_back(token);
+                }
             }
         }
-        content += line;
-        firstLine = false;
+        return out_list;
     }
 
-    return content;
-}
+public:
 
-std::string removeComments(const std::string& inputFilename) {
+    std::stringstream remove_comments(std::string fileName){
+        /*
+        This function parses a Verilog/SystemVerilog file, removes the comments and empty lines
+        and returns the processed content as a stringstream.
+        */
 
-    std::string output = "";
-
-    std::ifstream inputFile(inputFilename);
-    if (!inputFile.is_open()) {
-        std::cerr << "Error opening input file: " << inputFilename << std::endl;
-        return output;
-    }
-
-    std::string content((std::istreambuf_iterator<char>(inputFile)), std::istreambuf_iterator<char>());
-
-    // Remove single-line comments
-    content = std::regex_replace(content, std::regex("//.*"), "");
-
-    // Remove multi-line comments
-    content = std::regex_replace(content, std::regex("/\\*.*?\\*/", std::regex::extended), "");
-
-    // Remove leading and trailing spaces
-    std::istringstream iss(content);
-    std::ostringstream oss;
-    std::string line;
-    while (std::getline(iss, line)) {
-        // Remove leading spaces
-        line.erase(line.begin(), std::find_if(line.begin(), line.end(), [](unsigned char ch) {
-            return !std::isspace(ch);   // Find the first non-space character
-        }));
-        // Remove trailing spaces
-        line.erase(std::find_if(line.rbegin(), line.rend(), [](unsigned char ch) {
-            return !std::isspace(ch);   // Find the first non-space character from the end
-        }).base(), line.end());
-        oss << line << '\n';
-    }
-    content = oss.str();
-
-    output = content;  // Write the content to the output file
-
-    return output;
-}
-
-std::string parseAndAddNewLines(const std::string& inputText) {
-    std::string line;
-    std::istringstream inputTextStream(inputText);
-    std::string output;
-    
-
-    /**
-     * @brief Defines a regular expression to match various Verilog keywords and constructs.
-     * 
-     * This regex pattern matches the following Verilog constructs:
-     * - `case` statements
-     * - `if` statements
-     * - `else if` statements
-     * - `else` statements
-     * - `always` blocks with sensitivity lists
-     * - `always_ff` blocks with sensitivity lists
-     * - `always_comb` blocks
-     * - `begin` keywords
-     * - `end` keywords
-     * - `endcase` keywords
-     */
-    std::regex keywordRegex(R"((case\s*\(.*\)|if\s*\(.*\)|else\s*if\s*\(.*\)|else\s*\(.*\)|always\s*@\(.*\)|always_ff\s*@\(.*\)|always_comb\s+|begin\s+|end\s+|endcase\s+))");
-    std::smatch match;
-
-    while (std::getline(inputTextStream, line)) {
-        std::string modifiedLine;
-        size_t startPos = 0;
-
-        std::string tempLine = line.substr(startPos);
-
-
-        while (std::regex_search(tempLine, match, keywordRegex)) {
-            // Find the position of the match in the original line
-            size_t matchPos = match.position(0) + startPos;
-            
-            // Append the substring from startPos to the end of the match, followed by a newline
-            modifiedLine += line.substr(startPos, matchPos - startPos + match.length(0)) + "\n";
-            
-            // Remove leading whitespace characters from modifiedLine
-            modifiedLine.erase(modifiedLine.begin(), std::find_if(modifiedLine.begin(), modifiedLine.end(), [](unsigned char ch) {
-                return !std::isspace(ch);
-            }));
-            
-            // Update startPos to the position after the current match
-            startPos = matchPos + match.length(0);
-            
-            // Update tempLine to the substring starting from the new startPos
-            tempLine = line.substr(startPos);
+        if (fileName.empty()) {
+            throw std::invalid_argument("Filename cannot be empty");
         }
+    
+        if (fileName.substr(fileName.find_last_of(".") + 1) != "v" && fileName.substr(fileName.find_last_of(".") + 1) != "sv") {
+            throw std::invalid_argument("Error: File must have a .v or .sv extension");
+        }
+    
+        std::ifstream infile(fileName);
+        if (!infile.is_open()) {
+            throw std::runtime_error("Error: Could not open file " + fileName);
+        }
+
+        std::string line;
+        std::ifstream inFile(fileName);
+        std::stringstream outFile;
+
+        std::regex inline_Comment_pattern{"\\s*//.*"};          // Inline comment pattern
+        std::regex block_Comment_strt_pattern{"/\\*.*"};        // Block comment start pattern 
+        std::regex block_Comment_end_pattern{".*\\*/"};         // Block comment end pattern
+        std::regex blank_line_pattern{"\\s*"};                  // Empty Line pattern
+        std::smatch match, mtch;
+
+        bool commentStat = 0;                                   // Flag to determine if it is a comment or not
+
+        while (std::getline(inFile, line)){
+            if (std::regex_search(line, match, block_Comment_strt_pattern)){
+                commentStat = 1;
+                line = std::regex_replace(line, block_Comment_strt_pattern, "");
+            } else if (std::regex_search(line, match, block_Comment_end_pattern)){
+                line = std::regex_replace(line, block_Comment_end_pattern, "");
+                commentStat = 0;
+            }
+            // Writing into the output stringstream without any comments
+            if (!commentStat){      // If it is not a comment write into the output, otherwise ignore.
+                if (std::regex_search(line, match, inline_Comment_pattern)){
+                    line = std::regex_replace(line, inline_Comment_pattern, "");   
+                }
+            } else line = "";       // If a line is comment replace it with a blank string
+            if (!std::regex_match(line, mtch, blank_line_pattern)) outFile << line << std::endl;    // If line number is not empty, write it to the new file
+        }
+        return outFile;
+    }
+
+
+    void get_inouts(std::string line){
+        /*
+         * This function will read each line and find input and outputs of the module.
+         */
         
-        // Remove leading whitespace characters from the string 'line'
-        line.erase(
-            line.begin(), // Start erasing from the beginning of the string
-            std::find_if(
-                line.begin(), // Start searching from the beginning of the string
-                line.end(),   // Search until the end of the string
-                [](unsigned char ch) { // Lambda function to check each character
-                    return !std::isspace(ch); // Return true if the character is not a whitespace
-                }
-            )
-        );
 
-        modifiedLine += line.substr(startPos);                          // Append the remaining part of the line to modifiedLine
-        // Remove leading whitespace from the string 'modifiedLine'
-        modifiedLine.erase(
-            // Define the range to erase: from the beginning of the string to the first non-whitespace character
-            modifiedLine.begin(), 
-            std::find_if(
-                modifiedLine.begin(), 
-                modifiedLine.end(), 
-                // Lambda function to check if a character is not a whitespace
-                [](unsigned char ch) {
-                    return !std::isspace(ch);
-                }
-            )
-        );
-        output += modifiedLine + "\n";                                  // Append the modified line to the output string
-    }
+        // Pattern for input declaration
+        std::regex input_pattern{"\\s*input\\s*(reg|logic|bit\\s*)?(\\[[:\\d\\w]+\\])?([\\s\\w\\d,{}]*)\\s*"};
+        // Pattern for output declaration
+        std::regex output_pattern{"\\s*output\\s*(reg|logic|bit\\s*)?(\\[[:\\d\\w]+\\])?([\\s\\w\\d,{}]*)\\s*"};
 
-    return output;
-}
+        std::string delimiter = ",";    // Delimiter string
 
+        std::smatch mtch;
+        std::vector<reg_det> temp;
 
-port_dets port_det_extract(std::string inputText){
-    std::regex port_format(R"((input|output|inout)\s+(\blogic|reg|bit\b)?\s+(\[(\d+):(\d+)\])?\s+(\w+)\s*(\[(\d+):(\d+)\])?)");
-    std::smatch match;
-    port_dets port;
-
-    if(std::regex_search(inputText, match, port_format)){
-        port.port_empty = false;            // port is not empty
-        port.port_type = match.str(1);      // port type - matching group 1
-        port.port_name = match.str(6);      // port name - matching group 6
-        if (match.str(3) != ""){            // if port size is specified
-            port.port_size = std::abs(std::stoi(match.str(4)) - std::stoi(match.str(5)) + 1);
-        } else {
-            port.port_size = 1;
+        if(std::regex_search(line, mtch, input_pattern)){
+            temp = reg_name_separation(line, delimiter, input_pattern);
+            module_input.insert(module_input.end(), temp.begin(), temp.end());
+        } else if(std::regex_search(line, mtch, output_pattern)){
+            temp = reg_name_separation(line, delimiter, output_pattern);
+            module_output.insert(module_output.end(), temp.begin(), temp.end());
         }
     }
-    return port;
-}
 
-
-void print_port_det_vector(std::vector<port_dets> port){
-    std::cout << "ports in this module are: " << std::endl;
-    for (size_t i = 0; i < port.size(); i++){
-        port[i].print();
-        std::cout << std::endl;
+    void show_inouts(){
+        std::cout << "Input Pins:" << std::endl;
+        for (reg_det x : module_input){
+            std::cout <<x.name << "\t" << x.arr_value << "\t" << x.bitwidth << std::endl;
+        }
+        std::cout << "Output Pins:" << std::endl;
+        for (reg_det x : module_output){
+            std::cout << x.name << "\t" << x.arr_value << "\t" << x.bitwidth << std::endl;
+        }
     }
-}
+};
 
+void remove_comments(std::string fileName, std::string outFileName){
+    /*
+    This function parses a Verilog/SystemVerilog file, removes the comments and empty lines
+    it takes the input and output file names. It does not have a return value.
+    */
 
-std::vector<port_dets> extract_IF(const std::string& inputText) {
-    std::vector<port_dets> module_ports;
     std::string line;
-    std::istringstream inputTextStream(inputText);
-    
-    std::regex moduleRegex(R"(module\s+(\w+)\s*\((.*)\);)");
-    std::smatch match;
 
-    while (std::getline(inputTextStream, line)) {                   // Read each line from the input stream
-    if (std::regex_search(line, match, moduleRegex)){               // Check if the line matches the module regex pattern
-        std::cout << "Module name: " << match.str(1) << std::endl;  // Print the module name (first capture group)
-        int startPos = 0; // Initialize the starting position for port extraction
-        std::string ports = match.str(2); // Get the ports string (second capture group)
-        port_dets temp; // Temporary variable to hold port details
+    std::ifstream inFile(fileName);
+    std::ofstream outFile;
 
-        // Loop through the ports string to extract individual port definitions
-        while (ports.find(",", startPos) != std::string::npos) {
-            // Extract the substring representing a single port definition
-            std::string port = ports.substr(startPos, ports.find(",", startPos) - startPos);
-            // Update startPos to the position after the current comma
-            startPos = ports.find(",", startPos) + 1;
-            // Extract port details from the port definition string
-            temp = port_det_extract(port);
-            // If the port is not empty, add it to the module_ports vector
-            if(!temp.port_empty) module_ports.push_back(temp);
+
+    std::regex inline_Comment_pattern{"\\s*//.*"};          // Inline comment pattern
+    std::regex block_Comment_strt_pattern{"/\\*.*"};        // Block comment start pattern 
+    std::regex block_Comment_end_pattern{".*\\*/"};         // Block comment end pattern
+    std::regex blank_line_pattern{"\\s*"};                  // Empty Line pattern
+    std::smatch match, mtch;
+
+    bool commentStat = 0;                                   // Flag to determine if it is a comment or not
+
+    outFile.open(outFileName);
+    while (std::getline(inFile, line)){
+        if (std::regex_search(line, match, block_Comment_strt_pattern)){
+            commentStat = 1;
+            line = std::regex_replace(line, block_Comment_strt_pattern, "");
+        } else if (std::regex_search(line, match, block_Comment_end_pattern)){
+            line = std::regex_replace(line, block_Comment_end_pattern, "");
+            commentStat = 0;
         }
-
-        // Extract the last port definition (after the last comma)
-        temp = port_det_extract(ports.substr(startPos, ports.length() - startPos));
-        if(!temp.port_empty) // If the port is not empty, add it to the module_ports vector
-            module_ports.push_back(temp);
-    }     
+        // Writing into the output file without any comments
+        if (!commentStat){      // If it is not a comment write into the output, otherwise ignore.
+            if (std::regex_search(line, match, inline_Comment_pattern)){
+                line = std::regex_replace(line, inline_Comment_pattern, "");   
+            }
+        } else line = "";       // If a line is comment replace it with a blank string
+        if (!std::regex_match(line, mtch, blank_line_pattern)) outFile << line << std::endl;    // If line number is not empty, write it to the new file
+    }
+    outFile.close();
 }
 
-    return module_ports;
-}
+int main(int argc, char** argv) {
 
+    // std::stringstream buffer;                                            // Create a stringstream object to hold the file content
+    // buffer << infile.rdbuf();                                            // Read the entire file content into the stringstream buffer
+    // std::string file_Text = buffer.str();                                // Convert the stringstream buffer to a string
 
-int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <input_file> [output_file]" << std::endl;
-        return 1;
+    module_info get_io;
+
+    std::string line;
+    // std::cout << buffer.str() << std::endl;
+    // std::cout << line << std::endl;
+
+    std::stringstream noCommentFile = get_io.remove_comments(argv[1]);
+
+    // std::cout << noCommentFile.str() << std::endl;
+
+    while (std::getline(noCommentFile, line)){
+        get_io.get_inouts(line);
     }
 
-    std::string inputFilename = argv[1];
-    std::string outputFilename = (argc > 2) ? argv[2] : "output.v"; // Default output file name
-    std::string Comment_removed;
-
-    Comment_removed = removeComments(inputFilename);
-    // std::cout << "Comments removed and content written to " << Comment_removed << std::endl;
-
-    std::string NewLinesAdded = removeLineBreaks(Comment_removed);
-    // std::cout << NewLinesAdded << std::endl;
-
-    std::string formattedText = parseAndAddNewLines(NewLinesAdded);
-
-    // Open the output file for writing
-    std::ofstream outputFile(outputFilename);
-    if (!outputFile.is_open()) {
-        // If the file cannot be opened, print an error message and return with an error code
-        std::cerr << "Error opening output file: " << outputFilename << std::endl;
-        return 1;
-    }
-    // Write the formatted text to the output file
-    outputFile << formattedText << std::endl;
-    // Close the output file
-    outputFile.close();
-
-    print_port_det_vector(extract_IF(formattedText));
+    get_io.show_inouts();
 
     return 0;
 }
