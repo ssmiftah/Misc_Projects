@@ -53,11 +53,9 @@ private:
     }
 
 public:
-
-    std::stringstream remove_comments(std::string fileName){
+    void parse_file(std::string fileName){
         /*
-        This function parses a Verilog/SystemVerilog file, removes the comments and empty lines
-        and returns the processed content as a stringstream.
+        This function parses a Verilog/SystemVerilog file and extracts the module name, input and output pins.
         */
 
         if (fileName.empty()) {
@@ -72,6 +70,20 @@ public:
         if (!infile.is_open()) {
             throw std::runtime_error("Error: Could not open file " + fileName);
         }
+
+        std::stringstream noCommentFile = remove_comments(fileName);
+
+        std::string line;    
+        while (std::getline(noCommentFile, line)){
+            get_inouts(line);
+        }
+    }
+
+    std::stringstream remove_comments(std::string fileName){
+        /*
+        This function parses a Verilog/SystemVerilog file, removes the comments and empty lines
+        and returns the processed content as a stringstream.
+        */
 
         std::string line;
         std::ifstream inFile(fileName);
@@ -183,15 +195,9 @@ void remove_comments(std::string fileName, std::string outFileName){
 }
 
 int main(int argc, char** argv) {
-    
-    module_info get_io;
-    std::stringstream fileTxt = get_io.remove_comments(argv[1]);
 
-    std::string line;
-    while (std::getline(fileTxt, line)){
-        get_io.get_inouts(line);
-    }
-    
+    module_info get_io;
+    get_io.parse_file(argv[1]);
     get_io.show_inouts();
 
     return 0;
